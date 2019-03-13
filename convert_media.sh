@@ -5,10 +5,10 @@
 #                                                                             #
 # Wrapper script for batch control of video transcoding                       #
 # Requires:                                                                   #
-# 	* Don Melton's video transcoding gem                                      #
-# 		https://github.com/donmelton/video_transcoding                        #
-# 	* task-spooler - UNIX task scheduler                                      #
-# 		installed by 'brew install task-spooler                               #
+# 	* Don Melton's video transcoding gem                                  #
+# 		https://github.com/donmelton/video_transcoding                #
+# 	* task-spooler - UNIX task scheduler                                  #
+# 		installed by 'brew install task-spooler                       #
 #                                                                             #
 ###############################################################################
 

@@ -12,7 +12,7 @@ v1.24
   * installed by: 
     * `brew tap rockymadden/rockymadden`
 	* `brew install rockymadden/rockymadden/slack-cli`
-* [MediaInfo]()
+* [MediaInfo](https://mediaarea.net)
   * installed by: 
     * `brew install media-info`
 		

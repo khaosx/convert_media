@@ -1,19 +1,34 @@
 #!/bin/bash
 
 ###############################################################################
-# convert_media.sh                                                            #
+# convert_media.sh    v1.20                                                   #
 #                                                                             #
 # Wrapper script for batch control of video transcoding                       #
 # Requires:                                                                   #
-# 	* Don Melton's video transcoding gem                                  #
-# 		https://github.com/donmelton/video_transcoding                #
-# 	* task-spooler - UNIX task scheduler                                  #
-# 		installed by 'brew install task-spooler                       #
+# 	* Don Melton's video transcoding gem                                      #
+# 		https://github.com/donmelton/video_transcoding                        #
+# 	* task-spooler - UNIX task scheduler                                      #
+# 		installed by 'brew install task-spooler                               #
+# 	* slack-cli | Powerful Slack CLI via pure bash                            #
+# 		https://github.com/rockymadden/slack-cli                              #
+#       installed by:                                                         #
+#          'brew tap rockymadden/rockymadden'                                 #
+#          'brew install rockymadden/rockymadden/slack-cli                    #
+#                                                                             #
+# The version number of this script will be tied to Don Melton's gem version  #
+# e.g. 1.25 will be script version 1, gem v .25, applicable to anything       #
+# transcoded with version .20 or lower of Don's project.                      #
+# This is done to allow for quick ID of parameters used for media encoded     #
+# with that version of the script.                                            #
 #                                                                             #
 ###############################################################################
 
 # Make this the root volume you want everything to happen on
 dirWorkVolume="/Volumes/Data"
+
+# Other necessary locations
+movies_local="/Volumes/Data/Workflows/Outbox/Movies"
+movies_nas="/Volumes/Media/Movies"
 
 # Set your tools up here
 mediainfo=/usr/local/bin/mediainfo
@@ -21,8 +36,6 @@ taskspooler=/usr/local/bin/ts
 transcoder=/usr/local/bin/transcode-video
 slackcli=/usr/local/bin/slack
 rsync_exclude_lists="/Users/kris/scripts/rsync excludes"
-movies_local="/Volumes/Data/Workflows/Outbox/Movies"
-movies_nas="/Volumes/Media/Movies"
 
 # Let's prep the environment, just in case
 if [ ! -d "$dirWorkVolume" ]; then

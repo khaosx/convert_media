@@ -1,6 +1,7 @@
 # convert_media.sh
 
-Wrapper script for batch control of video transcoding
+Wrapper script written in BASH for batch control of video transcoding
+
 v1.24
 
 ## Requires:

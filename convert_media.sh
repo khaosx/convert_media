@@ -1,31 +1,28 @@
 #!/bin/bash
 
-# Make this the root volume you want everything to happen on
-dirWorkVolume="/Volumes/Data"
+# Make this the root you want everything to happen in
+dirWorkVolume="/Volumes/Data/Workflows"
 
-# Verify that environment is correct, and all directories and tools exist
+# Verify that environment is correct, and all directories
 if [ ! -d "$dirWorkVolume" ]; then
   echo "$dirWorkVolume is not present. Aborting."
   exit 1
 fi
 
-for dir in Exceptions Holding Processing
+for dir in Outbox/Archive Outbox/Exceptions Outbox/Movies Outbox/TV Encoding/Intake/Movies Encoding/Intake/TV Encoding/Processing Encoding/Staging/720p Encoding/Staging/4k Encoding/Staging/Default Encoding/Staging/Raw Encoding/Staging/x265
 	do
-		test -d "$dirWorkVolume/Workflows/Transcode/$dir" || mkdir -p "$dirWorkVolume/Workflows/Transcode/$dir"
- 	done
-
-for dir in Movies TV
-	do
-		for subdir in 720p 1080p_Quick FullHD x265 DVD
-			do
-				test -d "$dirWorkVolume/Workflows/Transcode/$dir/$subdir" || mkdir -p "$dirWorkVolume/Workflows/Transcode/$dir/$subdir"
-			done
+		strTestDir="$dirWorkVolume/$dir"
+		test -d "$strTestDir" || { mkdir -p "$strTestDir"; echo "$strTestDir not present. Creating. Script will exit after checks."; strExit="True"; }
 	done
+	
+# Now, let's make sure that we have met all the requirements
+for tool in mediainfo ts transcode-video slack; do
+    command -v $tool >/dev/null 2>&1 || { echo "Executable not in \$PATH: $tool" >&2; strExit="True"; }
+done
 
-for dir in "Copy to Archive Drive" "Move to 4k Drive" Movies TV
-	do
-		test -d "$dirWorkVolume/Workflows/Outbox/$dir" || mkdir -p "$dirWorkVolume/Workflows/Outbox/$dir"
- 	done
+if [ "$strExit" = "True" ]; then
+	exit 1
+fi
 
 # Clean out the task spooler queue, if handbrake not running, kill taskspooler
 if ! pgrep -f "HandBrakeCLI" >/dev/null 2>&1 ; then
@@ -33,26 +30,27 @@ if ! pgrep -f "HandBrakeCLI" >/dev/null 2>&1 ; then
 fi
 ts -C
 
-# Now, let's make sure that we have met all the requirements
-for tool in mediainfo ts transcode-video slack; do
-    command -v $tool >/dev/null 2>&1 || { echo "Executable not in \$PATH: $tool" >&2; exit 1; }
-done
-
 # Set variables
-dirProcessing="$dirWorkVolume/Workflows/Transcode/Processing"
-dirExceptions="$dirWorkVolume/Workflows/Transcode/Exceptions"
-dirArchive="$dirWorkVolume/Workflows/Outbox/Copy to Archive Drive"
-strGeneralOpts="--no-log"
-strTestOpts=""
-strDonTesting=""
+dirProcessing="$dirWorkVolume/Encoding/Processing"
+dirExceptions="$dirWorkVolume/Outbox/Exceptions"
+dirArchive="$dirWorkVolume/Outbox/Archive"
+strTVRegEx="([sS]([0-9]{2,}|[X]{2,})[eE]([0-9]{2,}|[Y]{2,}))"
+
+# Take all command line arguments and pass through to test options
+strTestOpts="$*"
+
+if [[ "$strTestOpts" == "*log*" ]]; then
+	strGeneralOpts="--crop detect --fallback-crop minimal"
+else
+	strGeneralOpts="--no-log --crop detect --fallback-crop minimal"
+fi
 
 # Create array of all MKV files found in the workflow
 OLDIFS=$IFS
 IFS=$'\n'
-fArray=($(find "$dirWorkVolume/Workflows/Transcode" -type f -name "*.mkv" ! -path "$dirWorkVolume/Workflows/Transcode/Holding/*" ! -path "$dirWorkVolume/Workflows/Transcode/Exceptions/*" ! -path "$dirWorkVolume/Workflows/Transcode/Processing/*"))
+fArray=($(find "$dirWorkVolume/Encoding/Staging" -type f -name "*.mkv" ))
 IFS=$OLDIFS
 tLen=${#fArray[@]}
-#for (( i=0; i<${tLen}; i++ ));
 for (( i=0; i < tLen; i++ ));
 	do
 		strTheFile="${fArray[$i]}"
@@ -60,7 +58,6 @@ for (( i=0; i < tLen; i++ ));
 		strExtension="${strFilename##*.}"
 		strFilename="${strFilename%.*}"
 		strFileProfile=$(echo "$strTheFile" | awk -F/ '{print $(NF-1)}')
-		strFileType=$(echo "$strTheFile" | awk -F/ '{print $(NF-2)}')
 
 		# Get media info
 		strMI=$(mediainfo --Output=file://"$HOME"/scripts/convert_media_mi.template "$strTheFile")
@@ -68,17 +65,15 @@ for (( i=0; i < tLen; i++ ));
 		strMIApp=$(echo "$strMI" | cut -f2 -d '^')
 		intNumVideoStream=$(echo "$strMI" | cut -f3 -d '^')
 		intNumAudioStream=$(echo "$strMI" | cut -f4 -d '^')
-		strSubCount=$(echo "$strMI" | cut -f5 -d '^')
-		intNumChannels=$(echo "$strMI" | cut -f7 -d '^')
+		intSubCount=$(echo "$strMI" | cut -f5 -d '^')
 		intHeight=$(echo "$strMI" | cut -f6 -d '^')
-
-		if [ "$intHeight" -le 480 ]; then
+		if (( intHeight <= 480 )); then
 			strHeight="DVD"
-		elif [ "$intHeight" -gt 480 ] && [ "$intHeight" -lt 720 ]; then
+		elif  (( intHeight > 480 )) && (( intHeight <= 720 )); then
 			strHeight="720p"
-		elif [ "$intHeight" -gt 720 ] && [ "$intHeight" -lt 1080 ]; then
+		elif (( intHeight > 720 )) && (( intHeight <= 1080 )); then
 			strHeight="1080p"
-		elif [ "$intHeight" -gt 1080 ]; then
+		elif (( intHeight > 1080 )); then
 			strHeight="2160p"
 		fi
 
@@ -86,104 +81,89 @@ for (( i=0; i < tLen; i++ ));
 
 		# Determine if raw or transcoded. Move to exceptions if transcoded.
 		if [[ $strMIApp =~ "HandBrake" ]]; then
-			echo "$strFilename is not original source. Aborting."
+			echo "$strFilename is not original source. Moving to exception folder."
 			mv "$strTheFile" "$dirExceptions/"
 			continue
 		fi
 
-		# Is there video?
 		if [ -z "$intNumVideoStream" ]; then
-			echo "$strFilename is invalid. No video stream. Moved to exceptions folder"
+			echo "$strFilename is invalid - no video stream. Moved to exception folder."
 			mv "$strTheFile" "$dirExceptions/"
 			continue
-		fi
-
-		# Is there audio?
+		fi 
+		
 		if [ -z "$intNumAudioStream" ]; then
-			echo "$strFilename is invalid. No audio stream. Moved to exceptions folder"
+			echo "$strFilename is invalid - no audio stream. Moved to exception folder."
 			mv "$strTheFile" "$dirExceptions/"
 			continue
-		fi
-
+		fi 
+		
 		# If we're still going, then it's ok to proceed
 
-		# Carpet should match the drapes and movie name should match file name.
+		# Compare file name and movie name. If different, write new movie name.
 		if [ "$strFilename" != "$strMIName" ]; then
 			mkvpropedit "$strTheFile" --edit info --set "title=$strFilename"
 		fi
 
-		# Find out what kind of transcode we're dealing with. FullHD receives no transcode and minimal
-		# processing. 720p and 1080p get some naming options. DVD also gets none
-		if [ "$strFileProfile" = "FullHD" ]; then
-			strArchFileName="$strFilename Remux-1080p.$strExtension"
-			cp "$strTheFile" "$dirArchive/$strArchFileName"
-			mv "$strTheFile" "$dirWorkVolume/Workflows/Outbox/$strFileType/$strArchFileName"
-			continue
-		elif [ "$strFileProfile" = "DVD" ]; then
-			strArchFileName="$strFilename DVD.$strExtension"
-			cp "$strTheFile" "$dirArchive/$strArchFileName"
-			mv "$strTheFile" "$dirWorkVolume/Workflows/Outbox/$strFileType/$strArchFileName"
+		# Find out what kind of transcode we're dealing with. 
+		# Raw - No encoding, renames original to spec, copies to archive and outbox
+		# 720p constrains height to 720 pixels, encodes file with x264, renames original, copies to archive and outbox 
+		# x265 will use 10-bit x265 encoder, encodes file, renames original, copies to archive and outbox
+		# 4k encodes file w x264, renames original, copies to archive and outbox
+		# Default constrains height to 1080p, encodes file with x264, renames original, copies to archive and outbox
+		 
+		if [ "$strFileProfile" = "Raw" ]; then
+			strArchFileName="$strFilename Remux-$strHeight.$strExtension"
+			cp -c "$strTheFile" "$dirArchive/$strArchFileName"
+			mv "$strTheFile" "$dirWorkVolume/Workflows/Outbox/$strArchFileName"
 			continue
 		elif [ "$strFileProfile" = "720p" ]; then
 			strDestLabel="BluRay-720p"
+			strVideoOpts="--720p --avbr --quick"
+		elif [ "$strFileProfile" = "x265" ]; then
+			strVideoOpts="--abr --handbrake-option encoder=x265_10bit"
+			strDestLabel="BluRay-$strHeight H265"
+		elif [ "$strFileProfile" = "4k" ]; then
+			strVideoOpts="--avbr --quick"
+			strDestLabel="BluRay-$strHeight"
 		else
 			strDestLabel="BluRay-1080p"
-		fi
-
-		# Set video options
-		strVideoOpts="--avbr --quick --crop detect --fallback-crop ffmpeg"
-		if [ "$strFileProfile" = "720p" ]; then
-			strVideoOpts="$strVideoOpts --720p"
-		fi
-		if [ "$strFileProfile" = "x265" ]; then
-			strVideoOpts="$strVideoOpts --abr --handbrake-option encoder=x265_10bit"
-			strDestLabel="$strDestLabel H265"
+			strVideoOpts="--max-height 1080 --avbr --quick"
 		fi
 
 		strDestFileName="$strFilename $strDestLabel.$strExtension"
 		strArchFileName="$strFilename Remux-$strHeight.$strExtension"
-
 		strDestOpts="$dirProcessing/$strDestFileName"
 
 		# Set Subtitle Options
-		if [ ! -f "$dirWorkVolume/Workflows/Transcode/Holding/$strFilename.srt" ]; then
-			if [ "$strSubCount" -eq 1 ]; then
-				strSubOpts="--add-subtitle all --no-auto-burn"
-			elif [ "$strSubCount" -eq 2 ]; then
-				strSubOpts="--add-subtitle all --no-auto-burn --force-subtitle scan"
-			elif [ "$strSubCount" -gt 2 ]; then
+		if [ ! -f "$dirWorkVolume/Encoding/Staging/$strFilename.srt" ]; then
+			if (( intSubCount > 0 )); then
 				strSubOpts="--add-subtitle eng --no-auto-burn --force-subtitle scan"
 			fi
+		else
+			strSubOpts="--add-srt $dirWorkVolume/Encoding/Staging/$strFilename.srt --bind-srt-language eng --no-auto-burn"
 		fi
 
 		# Set Audio Options
-		#if [ "$strCompression" = "Lossless" ]; then
-		if [ "$strFileProfile" = "1080p_FullAudio" ]; then
-			strAudioOpts="--copy-audio 1 --audio-width all=double"
-		elif [ "$intNumChannels" -eq 1 ]; then
-			strAudioOpts="--add-audio 1 --keep-ac3-stereo"
-		elif [ "$intNumChannels" -eq 2 ]; then
-			strAudioOpts="--add-audio 1 --audio-width all=stereo --keep-ac3-stereo"
-		elif [ "$intNumChannels" -gt 2 ]; then
-			#strAudioOpts="--add-audio 1 --audio-width 1=double"
-			strAudioOpts="--add-audio 1 --audio-width 1=surround"
-			#strAudioOpts="--add-audio 1 --audio-width 1=surround --ac3-encoder eac3 --ac3-bitrate 384"
-		fi
+		strAudioOpts="--add-audio eng --audio-width 1=surround --ac3-encoder eac3 --ac3-bitrate 384"
 
 		# Here we go. Time to start the process.
 		mv "$strTheFile" "$dirProcessing"
 		strSourceFile="$dirProcessing/$strFilename.$strExtension"
-		strDestFile="$dirWorkVolume/Workflows/Outbox/$strFileType/$strDestFileName"
-		ts slack chat send -tx "$strFilename has started transcoding." -ch '#transcodes' --filter  '.ts'
-		if [ ! -f "$dirWorkVolume/Workflows/Transcode/Holding/$strFilename.srt" ]; then
-			ts transcode-video $strTestOpts $strDonTesting $strGeneralOpts "$strVideoOpts" "$strAudioOpts" "$strSubOpts" --output "$strDestOpts" "$strSourceFile"
+		if [[ "$strDestFileName" =~ $strTVRegEx ]]; then
+			strDestFile="$dirWorkVolume/Outbox/TV/$strDestFileName"
 		else
-			ts transcode-video $strTestOpts $strDonTesting $strGeneralOpts "$strVideoOpts" "$strAudioOpts" --add-srt "$dirWorkVolume/Workflows/Transcode/Holding/$strFilename.srt" --bind-srt-language eng --no-auto-burn --output "$strDestOpts" "$strSourceFile"
-			ts rm -f "$dirWorkVolume/Workflows/Transcode/Holding/$strFilename.srt"
+			mkdir -p "$dirWorkVolume/Outbox/Movies/$strFilename"
+			strDestFile="$dirWorkVolume/Outbox/Movies/$strDestFileName"
+		fi
+		ts slack chat send -tx "$strFilename has started transcoding." -ch '#encoding' --filter  '.ts'
+		ts transcode-video $strGeneralOpts $strVideoOpts $strAudioOpts $strSubOpts $strTestOpts --output "$strDestOpts" "$strSourceFile"
+		if [ -f "$dirWorkVolume/Encoding/Staging/$strFilename.srt" ]; then
+		    ts rm -f "$dirWorkVolume/Encoding/Staging/$strFilename.srt"
 		fi
 		ts -d mv "$strSourceFile" "$dirArchive/$strArchFileName"
 		ts -d mv "$strDestOpts" "$strDestFile"
-		ts -d slack chat send -tx "$strFilename has finished transcoding." -ch '#transcodes' --filter  '.ts'
+		ts -d slack chat send -tx "$strFilename has finished transcoding." -ch '#encoding' --filter  '.ts'
 
 	done
 exit 0

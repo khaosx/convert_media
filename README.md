@@ -2,7 +2,7 @@
 
 Wrapper script written in BASH for batch control of video transcoding
 
-v1.24
+v1.25
 
 ## Requires:
  

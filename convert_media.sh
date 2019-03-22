@@ -35,14 +35,29 @@ dirProcessing="$dirWorkVolume/Encoding/Processing"
 dirExceptions="$dirWorkVolume/Outbox/Exceptions"
 dirArchive="$dirWorkVolume/Outbox/Archive"
 strTVRegEx="([sS]([0-9]{2,}|[X]{2,})[eE]([0-9]{2,}|[Y]{2,}))"
+dirEncodingLogs="/Volumes/Media/Encoding Logs"
 
 # Take all command line arguments and pass through to test options
 strTestOpts="$*"
 
+if [[ "$strTestOpts" = "prep" ]]; then
+	files=/Volumes/Data/Workflows/Encoding/Intake/*.mkv
+	for file in $files
+	do
+  		echo "Processing $file"
+  		if [[ "$file" =~ $strTVRegEx ]]; then
+			/usr/local/bin/filebot -rename "$file" --db TheTVDB --format "/Volumes/Data/Workflows/Encoding/Staging/Default/{n} - {s00e00} - {t}" -non-strict
+		else
+			/usr/local/bin/filebot -rename "$file" --db TheMovieDB --format "/Volumes/Data/Workflows/Encoding/Staging/Default/{n.colon(' - ')} ({y})" -non-strict
+	 	fi
+	done
+exit 0
+fi
+
 if [[ "$strTestOpts" == "*log*" ]]; then
 	strGeneralOpts="--crop detect --fallback-crop minimal"
 else
-	strGeneralOpts="--no-log --crop detect --fallback-crop minimal"
+	strGeneralOpts="--crop detect --fallback-crop minimal"
 fi
 
 # Create array of all MKV files found in the workflow
@@ -127,23 +142,24 @@ for (( i=0; i < tLen; i++ ));
 			strVideoOpts="--avbr --quick"
 			strDestLabel="BluRay-$strHeight"
 		else
-			strDestLabel="BluRay-1080p"
-			strVideoOpts="--max-height 1080 --avbr --quick"
+			if [ "$strHeight" = "DVD" ]; then
+				strVideoOpts="--avbr --quick --target 480p=2000"
+				strDestLabel = "DVD"
+			else
+				strDestLabel="BluRay-1080p"
+				strVideoOpts="--max-height 1080 --avbr --quick"
+			fi
 		fi
 
 		strDestFileName="$strFilename $strDestLabel.$strExtension"
 		strArchFileName="$strFilename Remux-$strHeight.$strExtension"
 		strDestOpts="$dirProcessing/$strDestFileName"
 
-		# Set Subtitle Options
-		if [ ! -f "$dirWorkVolume/Encoding/Staging/$strFilename.srt" ]; then
-			if (( intSubCount > 0 )); then
+		# Set Subtitle Options - Soft add all eng subtitles, find forced and mark in file
+		if (( intSubCount > 0 )); then
 				strSubOpts="--add-subtitle eng --no-auto-burn --force-subtitle scan"
-			fi
-		else
-			strSubOpts="--add-srt $dirWorkVolume/Encoding/Staging/$strFilename.srt --bind-srt-language eng --no-auto-burn"
 		fi
-
+		
 		# Set Audio Options
 		strAudioOpts="--add-audio eng --audio-width 1=surround --ac3-encoder eac3 --ac3-bitrate 384"
 
@@ -154,15 +170,16 @@ for (( i=0; i < tLen; i++ ));
 			strDestFile="$dirWorkVolume/Outbox/TV/$strDestFileName"
 		else
 			mkdir -p "$dirWorkVolume/Outbox/Movies/$strFilename"
-			strDestFile="$dirWorkVolume/Outbox/Movies/$strDestFileName"
+			strDestFile="$dirWorkVolume/Outbox/Movies/$strFilename/$strDestFileName"
 		fi
 		ts slack chat send -tx "$strFilename has started transcoding." -ch '#encoding' --filter  '.ts'
 		ts transcode-video $strGeneralOpts $strVideoOpts $strAudioOpts $strSubOpts $strTestOpts --output "$strDestOpts" "$strSourceFile"
-		if [ -f "$dirWorkVolume/Encoding/Staging/$strFilename.srt" ]; then
-		    ts rm -f "$dirWorkVolume/Encoding/Staging/$strFilename.srt"
-		fi
 		ts -d mv "$strSourceFile" "$dirArchive/$strArchFileName"
 		ts -d mv "$strDestOpts" "$strDestFile"
+		ts -d mkvpropedit "$strDestFile" --edit info --set "muxing-application=vtp_1.25.1"
+		if [ -z "$strTestOpts" ]; then
+			ts -d mv "$strDestOpts.log" "$dirEncodingLogs"
+		fi
 		ts -d slack chat send -tx "$strFilename has finished transcoding." -ch '#encoding' --filter  '.ts'
 
 	done

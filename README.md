@@ -2,7 +2,7 @@
 
 Wrapper script written in BASH for batch control of video transcoding
 
-v1.25.1
+v1.25.03
 
 ## Requires:
  
@@ -13,9 +13,6 @@ v1.25.1
   * installed by: 
     * `brew tap rockymadden/rockymadden`
 	* `brew install rockymadden/rockymadden/slack-cli`
-* [MediaInfo](https://mediaarea.net)
-  * installed by: 
-    * `brew install media-info`
 		
 ## Notes:
 
